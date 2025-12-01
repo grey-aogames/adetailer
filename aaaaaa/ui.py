@@ -133,6 +133,7 @@ def adui(
         elem_id=eid("ad_main_accordion"),
         label=ADETAILER,
         visible=True,
+        open=False
     ) as ad_enable:
         with gr.Row():
             with gr.Column(scale=8):
