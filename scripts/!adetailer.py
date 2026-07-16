@@ -559,9 +559,10 @@ class AfterDetailerScript(scripts.Script):
         return args.ad_noise_multiplier if args.ad_use_noise_multiplier else None
 
     @staticmethod
-    def infotext(p) -> str:
+    def infotext(p, index: int = None) -> str:
+        i = index if index is not None else get_i(p)
         return create_infotext(
-            p, p.all_prompts, p.all_seeds, p.all_subseeds, None, 0, 0
+            p, p.all_prompts, p.all_seeds, p.all_subseeds, i, 0, 0
         )
 
     def read_params_txt(self) -> str:
@@ -706,7 +707,16 @@ class AfterDetailerScript(scripts.Script):
 
         return i2i
 
-    def save_image(self, p, image, *, condition: str, suffix: str) -> None:
+    def save_image(
+        self,
+        p,
+        image,
+        *,
+        condition: str,
+        suffix: str,
+        index: int = None,
+        info: str | None = None,
+    ) -> None:
         if not opts.data.get(condition, False):
             return
 
@@ -716,6 +726,7 @@ class AfterDetailerScript(scripts.Script):
             save_prompt = p.all_prompts[i]
         else:
             save_prompt = p.prompt
+
         seed, _ = self.get_seed(p)
 
         ad_save_images_dir: str = opts.data.get("ad_save_images_dir", "")
@@ -730,7 +741,7 @@ class AfterDetailerScript(scripts.Script):
             seed=seed,
             prompt=save_prompt,
             extension=opts.samples_format,
-            info=self.infotext(p),
+            info=info or self.infotext(p, index=i),
             p=p,
             suffix=suffix,
         )
@@ -1008,6 +1019,7 @@ class AfterDetailerScript(scripts.Script):
             pred.preview,
             condition="ad_save_previews",
             suffix="-ad-preview" + suffix(n, "-"),
+            index=i
         )
 
         steps = len(masks)
@@ -1024,6 +1036,8 @@ class AfterDetailerScript(scripts.Script):
             p2.image_mask = masks[j]
             p2.init_images[0] = ensure_pil_image(p2.init_images[0], "RGB")
             self.i2i_prompts_replace(p2, ad_prompts, ad_negatives, j)
+
+            self.fix_p2(p, p2, pp, args, pred, j)
 
             if re.match(r"^\s*\[SKIP\]\s*$", p2.prompt):
                 continue
@@ -1058,6 +1072,8 @@ class AfterDetailerScript(scripts.Script):
             self.compare_prompt(p.extra_generation_params, processed, n=n)
             p2 = copy(i2i)
             p2.init_images = [processed.images[0]]
+            p2.cached_c = [None, None]
+            p2.cached_uc = [None, None]
 
         if processed is not None:
             pp.image = processed.images[0]
@@ -1073,6 +1089,8 @@ class AfterDetailerScript(scripts.Script):
         pp.image = self.get_i2i_init_image(p, pp)
         pp.image = ensure_pil_image(pp.image, "RGB")
         init_image = copy(pp.image)
+        current_index = get_i(p)
+        before_ad_infotext = self.infotext(p, index=current_index)
         arg_list = self.get_args(p, *args_)
         params_txt_content = self.read_params_txt()
 
@@ -1092,12 +1110,18 @@ class AfterDetailerScript(scripts.Script):
 
         if is_processed and not is_skip_img2img(p):
             self.save_image(
-                p, init_image, condition="ad_save_images_before", suffix="-ad-before"
+                p,
+                init_image,
+                condition="ad_save_images_before",
+                suffix="-ad-before",
+                index=current_index,
+                info=before_ad_infotext,
             )
 
         if need_call_process(p):
             with preserve_prompts(p):
                 copy_p = copy(p)
+                copy_p.extra_generation_params = copy_extra_params(p.extra_generation_params)
                 p.scripts.before_process(copy_p)
                 p.scripts.process(copy_p)
 
